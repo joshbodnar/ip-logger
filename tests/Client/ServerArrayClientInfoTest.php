@@ -83,4 +83,37 @@ final class ServerArrayClientInfoTest extends TestCase
 
         $this->assertNull($clientInfo->getIp());
     }
+
+    public function testMultipleIpsInXForwardedForReturnsFirst(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.1, 198.51.100.1, 192.0.2.1',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server);
+
+        $this->assertSame('203.0.113.1', $clientInfo->getIp());
+    }
+
+    public function testMultipleIpsWithSpaces(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.1,198.51.100.1, 192.0.2.1',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server);
+
+        $this->assertSame('203.0.113.1', $clientInfo->getIp());
+    }
+
+    public function testIpv4AndIpv6InXForwardedFor(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.1, 2001:db8::1',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server);
+
+        $this->assertSame('203.0.113.1', $clientInfo->getIp());
+    }
 }

@@ -39,6 +39,16 @@ $logger->getByIp('192.168.1.1');
 $logger->clear();
 ```
 
+## Client IP Detection
+
+Automatically handles proxy headers:
+- `X-Forwarded-For`
+- `X-Real-IP`
+- `Client-IP`
+- `X-Cluster-Client-IP`
+
+Supports comma-separated IPs (e.g., `"203.0.113.1, 198.51.100.1"`) - returns the leftmost (original client) IP.
+
 ## Storage
 
 | Type | Usage |

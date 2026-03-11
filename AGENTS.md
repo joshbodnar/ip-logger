@@ -203,3 +203,12 @@ public function testValidIpv4Address(): void
 - Validate external resources (files, databases, cache connections) early
 - Use Adapter Pattern: accept framework-provided instances (PDO, Redis, Memcached) rather than creating connections internally
 - Provide factory methods (`create()`) for backward compatibility when changing constructors to accept instances
+
+### Client Info & Proxy Handling
+
+When implementing client info extraction:
+- Parse comma-separated IP lists (e.g., `X-Forwarded-For: client, proxy1, proxy2`)
+- Return the leftmost IP (original client) when no trusted proxies configured
+- Support configurable trusted proxy list to handle cases where all IPs are from proxies
+- Handle both IPv4 and IPv6 addresses
+- Trim whitespace from IPs

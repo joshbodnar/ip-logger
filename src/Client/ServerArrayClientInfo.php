@@ -45,18 +45,26 @@ final class ServerArrayClientInfo implements ClientInfoInterface
             return null;
         }
 
-        $ips = explode(',', $this->server[$header]);
-        $ip = trim($ips[0]);
+        $ips = array_map('trim', explode(',', $this->server[$header]));
+        $ips = array_filter($ips, fn(string $ip) => $this->isValidIp($ip));
 
-        if ($this->isValidIp($ip)) {
-            if ($this->isTrustedProxyIp($ip)) {
-                return $this->getDirectIp();
-            }
-
-            return $ip;
+        if (empty($ips)) {
+            return null;
         }
 
-        return null;
+        if (!empty(self::TRUSTED_PROXY_IPS)) {
+            $trustedIps = array_filter($ips, fn(string $ip) => $this->isTrustedProxyIp($ip));
+
+            if (count($trustedIps) === count($ips)) {
+                return null;
+            }
+
+            $untrustedIps = array_diff($ips, $trustedIps);
+
+            return reset($untrustedIps);
+        }
+
+        return reset($ips);
     }
 
     private function getDirectIp(): ?string
