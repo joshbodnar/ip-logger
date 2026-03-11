@@ -17,22 +17,30 @@ final class SqliteStorage implements StorageInterface
 
     private string $rateLimitTableName;
 
-    public function __construct(\PDO $pdo, ?string $tableName = null)
-    {
+    public function __construct(
+        \PDO $pdo,
+        ?string $tableName = null,
+        ?string $bannedTableName = null,
+        ?string $rateLimitTableName = null
+    ) {
         $this->pdo = $pdo;
         $this->tableName = $tableName ?? 'ip_logs';
-        $this->bannedTableName = 'banned_ips';
-        $this->rateLimitTableName = 'rate_limits';
+        $this->bannedTableName = $bannedTableName ?? 'banned_ips';
+        $this->rateLimitTableName = $rateLimitTableName ?? 'rate_limits';
         $this->initializeSchema();
     }
 
-    public static function create(string $databasePath, ?string $tableName = null): self
-    {
+    public static function create(
+        string $databasePath,
+        ?string $tableName = null,
+        ?string $bannedTableName = null,
+        ?string $rateLimitTableName = null
+    ): self {
         $pdo = new \PDO("sqlite:{$databasePath}", null, null, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         ]);
 
-        return new self($pdo, $tableName);
+        return new self($pdo, $tableName, $bannedTableName, $rateLimitTableName);
     }
 
     public function save(LogEntry $entry): void

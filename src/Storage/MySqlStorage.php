@@ -17,12 +17,16 @@ final class MySqlStorage implements StorageInterface
 
     private string $rateLimitTableName;
 
-    public function __construct(\PDO $pdo, ?string $tableName = null)
-    {
+    public function __construct(
+        \PDO $pdo,
+        ?string $tableName = null,
+        ?string $bannedTableName = null,
+        ?string $rateLimitTableName = null
+    ) {
         $this->pdo = $pdo;
         $this->tableName = $tableName ?? 'ip_logs';
-        $this->bannedTableName = 'banned_ips';
-        $this->rateLimitTableName = 'rate_limits';
+        $this->bannedTableName = $bannedTableName ?? 'banned_ips';
+        $this->rateLimitTableName = $rateLimitTableName ?? 'rate_limits';
         $this->initializeSchema();
     }
 
@@ -32,7 +36,9 @@ final class MySqlStorage implements StorageInterface
         string $username,
         string $password,
         int $port = 3306,
-        ?string $tableName = null
+        ?string $tableName = null,
+        ?string $bannedTableName = null,
+        ?string $rateLimitTableName = null
     ): self {
         $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
 
@@ -41,7 +47,7 @@ final class MySqlStorage implements StorageInterface
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);
 
-        return new self($pdo, $tableName);
+        return new self($pdo, $tableName, $bannedTableName, $rateLimitTableName);
     }
 
     public function save(LogEntry $entry): void
