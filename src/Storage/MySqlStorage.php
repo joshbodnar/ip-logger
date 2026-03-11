@@ -11,21 +11,27 @@ final class MySqlStorage implements StorageInterface
 {
     private \PDO $pdo;
 
-    public function __construct(
+    public function __construct(\PDO $pdo)
+    {
+        $this->pdo = $pdo;
+        $this->initializeSchema();
+    }
+
+    public static function create(
         string $host,
         string $database,
         string $username,
         string $password,
         int $port = 3306
-    ) {
+    ): self {
         $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
 
-        $this->pdo = new \PDO($dsn, $username, $password, [
+        $pdo = new \PDO($dsn, $username, $password, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);
 
-        $this->initializeSchema();
+        return new self($pdo);
     }
 
     public function save(LogEntry $entry): void

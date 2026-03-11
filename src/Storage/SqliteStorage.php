@@ -5,18 +5,26 @@ declare(strict_types=1);
 namespace IpLogger\Storage;
 
 use IpLogger\Entity\LogEntry;
+use InvalidArgumentException;
 use RuntimeException;
 
 final class SqliteStorage implements StorageInterface
 {
     private \PDO $pdo;
 
-    public function __construct(string $databasePath)
+    public function __construct(\PDO $pdo)
     {
-        $this->pdo = new \PDO("sqlite:{$databasePath}", null, null, [
+        $this->pdo = $pdo;
+        $this->initializeSchema();
+    }
+
+    public static function create(string $databasePath): self
+    {
+        $pdo = new \PDO("sqlite:{$databasePath}", null, null, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         ]);
-        $this->initializeSchema();
+
+        return new self($pdo);
     }
 
     public function save(LogEntry $entry): void

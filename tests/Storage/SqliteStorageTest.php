@@ -29,7 +29,7 @@ final class SqliteStorageTest extends TestCase
 
     public function testSaveAndGetAll(): void
     {
-        $storage = new SqliteStorage($this->tempDb);
+        $storage = SqliteStorage::create($this->tempDb);
 
         $entry1 = new LogEntry('192.168.1.1');
         $entry2 = new LogEntry('10.0.0.1');
@@ -44,7 +44,7 @@ final class SqliteStorageTest extends TestCase
 
     public function testGetByIp(): void
     {
-        $storage = new SqliteStorage($this->tempDb);
+        $storage = SqliteStorage::create($this->tempDb);
 
         $storage->save(new LogEntry('192.168.1.1'));
         $storage->save(new LogEntry('192.168.1.2'));
@@ -57,7 +57,7 @@ final class SqliteStorageTest extends TestCase
 
     public function testClear(): void
     {
-        $storage = new SqliteStorage($this->tempDb);
+        $storage = SqliteStorage::create($this->tempDb);
 
         $storage->save(new LogEntry('192.168.1.1'));
         $storage->save(new LogEntry('10.0.0.1'));
@@ -69,7 +69,7 @@ final class SqliteStorageTest extends TestCase
 
     public function testGetAllEmpty(): void
     {
-        $storage = new SqliteStorage($this->tempDb);
+        $storage = SqliteStorage::create($this->tempDb);
 
         $entries = $storage->getAll();
 
@@ -80,10 +80,10 @@ final class SqliteStorageTest extends TestCase
     {
         $entry = new LogEntry('192.168.1.1', 'TestAgent');
 
-        $storage1 = new SqliteStorage($this->tempDb);
+        $storage1 = SqliteStorage::create($this->tempDb);
         $storage1->save($entry);
 
-        $storage2 = new SqliteStorage($this->tempDb);
+        $storage2 = SqliteStorage::create($this->tempDb);
         $entries = $storage2->getAll();
 
         $this->assertCount(1, $entries);

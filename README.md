@@ -80,7 +80,13 @@ $logger = new IpLogger($storage);
 use IpLogger\IpLogger;
 use IpLogger\Storage\SqliteStorage;
 
-$storage = new SqliteStorage('/path/to/database.db');
+// Using factory method (creates connection internally)
+$storage = SqliteStorage::create('/path/to/database.db');
+
+// Or pass existing PDO instance
+$pdo = new \PDO('sqlite:/path/to/database.db');
+$storage = new SqliteStorage($pdo);
+
 $logger = new IpLogger($storage);
 ```
 
@@ -90,13 +96,18 @@ $logger = new IpLogger($storage);
 use IpLogger\IpLogger;
 use IpLogger\Storage\MySqlStorage;
 
-$storage = new MySqlStorage(
+// Using factory method (creates connection internally)
+$storage = MySqlStorage::create(
     host: 'localhost',
     database: 'ip_logs',
     username: 'root',
     password: 'password',
     port: 3306
 );
+
+// Or pass existing PDO instance from your framework
+$storage = new MySqlStorage($frameworkPdo);
+
 $logger = new IpLogger($storage);
 ```
 
@@ -123,6 +134,67 @@ $memcached = new \Memcached();
 $memcached->addServer('127.0.0.1', 11211);
 
 $storage = new MemcachedStorage($memcached);
+$logger = new IpLogger($storage);
+```
+
+## Framework Integration
+
+The storage classes accept framework-provided connections, allowing you to reuse existing database/caching infrastructure.
+
+### Laravel
+
+```php
+use IpLogger\IpLogger;
+use IpLogger\Storage\MySqlStorage;
+use IpLogger\Storage\SqliteStorage;
+use IpLogger\Storage\RedisStorage;
+
+// Use Laravel's PDO connection
+$pdo = \DB::connection()->getPdo();
+$storage = new MySqlStorage($pdo);
+
+// Or SQLite
+$storage = new SqliteStorage(\DB::connection()->getPdo());
+
+// Redis - use Laravel's Redis facade
+$redis = \Redis::connection()->client();
+$storage = new RedisStorage($redis);
+
+$logger = new IpLogger($storage);
+```
+
+### Yii2
+
+```php
+use IpLogger\IpLogger;
+use IpLogger\Storage\MySqlStorage;
+
+// Use Yii2's PDO connection
+$pdo = \Yii::$app->db->pdo;
+$storage = new MySqlStorage($pdo);
+
+// Redis
+$redis = \Yii::$app->redis;
+$storage = new RedisStorage($redis);
+
+$logger = new IpLogger($storage);
+```
+
+### Symfony
+
+```php
+use IpLogger\IpLogger;
+use IpLogger\Storage\MySqlStorage;
+
+// Using Doctrine DBAL connection
+$connection = $entityManager->getConnection();
+$pdo = $connection->getNativeConnection();
+$storage = new MySqlStorage($pdo);
+
+// Using Symfony's Redis
+$redis = $this->container->get('snc_redis.default');
+$storage = new RedisStorage($redis);
+
 $logger = new IpLogger($storage);
 ```
 
