@@ -56,7 +56,34 @@ $config = (new IpLoggerConfig())
 $logger = new IpLogger($storage, $config);
 ```
 
-When bans or rate limiting are enabled, `log()` and `logFromClientInfo()` will throw `InvalidIpException`.
+When bans or rate limiting are enabled, `log()` and `logFromClientInfo()` will throw specific exceptions.
+
+## Exceptions
+
+| Exception | Description |
+|-----------|-------------|
+| `InvalidIpException` | Thrown when IP address is invalid |
+| `IpBannedException` | Thrown when IP is banned (extends `RuntimeException`) |
+| `RateLimitExceededException` | Thrown when rate limit exceeded (extends `RuntimeException`) |
+
+### Exception Usage
+
+```php
+use IpLogger\IpLogger;
+use IpLogger\Exception\IpBannedException;
+use IpLogger\Exception\RateLimitExceededException;
+use IpLogger\Exception\InvalidIpException;
+
+try {
+    $logger->logFromClientInfo($clientInfo);
+} catch (IpBannedException $e) {
+    echo "Banned IP: " . $e->getIp();
+} catch (RateLimitExceededException $e) {
+    echo "Rate limited - max " . $e->getMaxRequests() . " per " . $e->getWindowSeconds() . " seconds";
+} catch (InvalidIpException $e) {
+    echo "Invalid IP: " . $e->getMessage();
+}
+```
 
 ## Client IP Detection
 

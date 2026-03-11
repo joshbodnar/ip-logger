@@ -7,6 +7,8 @@ namespace IpLogger;
 use IpLogger\Client\ClientInfoInterface;
 use IpLogger\Entity\LogEntry;
 use IpLogger\Exception\InvalidIpException;
+use IpLogger\Exception\IpBannedException;
+use IpLogger\Exception\RateLimitExceededException;
 use IpLogger\Storage\StorageInterface;
 
 final class IpLogger implements LoggerInterface
@@ -103,7 +105,7 @@ final class IpLogger implements LoggerInterface
     private function checkBan(string $ip): void
     {
         if ($this->config->isBanEnabled() && $this->storage->isBanned($ip)) {
-            throw new InvalidIpException("IP address is banned: {$ip}");
+            throw new IpBannedException($ip);
         }
     }
 
@@ -117,7 +119,11 @@ final class IpLogger implements LoggerInterface
         $count = $this->storage->getRequestCount($ip);
 
         if ($count > $this->config->getRateLimitMaxRequests()) {
-            throw new InvalidIpException("Rate limit exceeded for IP: {$ip}");
+            throw new RateLimitExceededException(
+                $ip,
+                $this->config->getRateLimitMaxRequests(),
+                $this->config->getRateLimitWindowSeconds()
+            );
         }
     }
 

@@ -8,6 +8,8 @@ use IpLogger\IpLogger;
 use IpLogger\IpLoggerConfig;
 use IpLogger\Client\ClientInfoInterface;
 use IpLogger\Exception\InvalidIpException;
+use IpLogger\Exception\IpBannedException;
+use IpLogger\Exception\RateLimitExceededException;
 use PHPUnit\Framework\TestCase;
 
 final class IpLoggerTest extends TestCase
@@ -137,7 +139,7 @@ final class IpLoggerTest extends TestCase
 
         $logger->banIp('192.168.1.100');
 
-        $this->expectException(InvalidIpException::class);
+        $this->expectException(IpBannedException::class);
         $this->expectExceptionMessage('IP address is banned');
 
         $logger->log('192.168.1.100');
@@ -155,9 +157,53 @@ final class IpLoggerTest extends TestCase
         $logger->log('192.168.1.1');
         $logger->log('192.168.1.1');
 
-        $this->expectException(InvalidIpException::class);
+        $this->expectException(RateLimitExceededException::class);
         $this->expectExceptionMessage('Rate limit exceeded');
 
         $logger->log('192.168.1.1');
+    }
+
+    public function testRateLimitExceptionContainsDetails(): void
+    {
+        $config = (new IpLoggerConfig())
+            ->setRateLimitEnabled(true)
+            ->setRateLimitMaxRequests(5)
+            ->setRateLimitWindowSeconds(120);
+
+        $logger = new IpLogger(null, $config);
+
+        $logger->log('192.168.1.1');
+        $logger->log('192.168.1.1');
+        $logger->log('192.168.1.1');
+        $logger->log('192.168.1.1');
+        $logger->log('192.168.1.1');
+
+        try {
+            $logger->log('192.168.1.1');
+        } catch (RateLimitExceededException $e) {
+            $this->assertSame('192.168.1.1', $e->getIp());
+            $this->assertSame(5, $e->getMaxRequests());
+            $this->assertSame(120, $e->getWindowSeconds());
+            return;
+        }
+
+        $this->fail('Expected RateLimitExceededException');
+    }
+
+    public function testIpBannedExceptionContainsIp(): void
+    {
+        $config = (new IpLoggerConfig())->setBanEnabled(true);
+        $logger = new IpLogger(null, $config);
+
+        $logger->banIp('10.0.0.1');
+
+        try {
+            $logger->log('10.0.0.1');
+        } catch (IpBannedException $e) {
+            $this->assertSame('10.0.0.1', $e->getIp());
+            return;
+        }
+
+        $this->fail('Expected IpBannedException');
     }
 }
