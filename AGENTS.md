@@ -201,3 +201,5 @@ public function testValidIpv4Address(): void
 - Storage implementations should follow `StorageInterface`
 - Use constructor injection for dependencies
 - Validate external resources (files, databases, cache connections) early
+- Use Adapter Pattern: accept framework-provided instances (PDO, Redis, Memcached) rather than creating connections internally
+- Provide factory methods (`create()`) for backward compatibility when changing constructors to accept instances
