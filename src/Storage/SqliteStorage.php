@@ -11,25 +11,34 @@ final class SqliteStorage implements StorageInterface
 {
     private \PDO $pdo;
 
-    public function __construct(\PDO $pdo)
+    private string $tableName;
+
+    private string $bannedTableName;
+
+    private string $rateLimitTableName;
+
+    public function __construct(\PDO $pdo, ?string $tableName = null)
     {
         $this->pdo = $pdo;
+        $this->tableName = $tableName ?? 'ip_logs';
+        $this->bannedTableName = 'banned_ips';
+        $this->rateLimitTableName = 'rate_limits';
         $this->initializeSchema();
     }
 
-    public static function create(string $databasePath): self
+    public static function create(string $databasePath, ?string $tableName = null): self
     {
         $pdo = new \PDO("sqlite:{$databasePath}", null, null, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         ]);
 
-        return new self($pdo);
+        return new self($pdo, $tableName);
     }
 
     public function save(LogEntry $entry): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO ip_logs (ip, user_agent, timestamp) VALUES (:ip, :userAgent, :timestamp)'
+            "INSERT INTO {$this->tableName} (ip, user_agent, timestamp) VALUES (:ip, :userAgent, :timestamp)"
         );
 
         $stmt->execute([
@@ -44,7 +53,7 @@ final class SqliteStorage implements StorageInterface
      */
     public function getAll(): array
     {
-        $stmt = $this->pdo->query('SELECT ip, user_agent, timestamp FROM ip_logs ORDER BY id DESC');
+        $stmt = $this->pdo->query("SELECT ip, user_agent, timestamp FROM {$this->tableName} ORDER BY id DESC");
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
         return $this->rowsToEntries($rows);
@@ -55,7 +64,9 @@ final class SqliteStorage implements StorageInterface
      */
     public function getByIp(string $ip): array
     {
-        $stmt = $this->pdo->prepare('SELECT ip, user_agent, timestamp FROM ip_logs WHERE ip = :ip ORDER BY id DESC');
+        $stmt = $this->pdo->prepare(
+            "SELECT ip, user_agent, timestamp FROM {$this->tableName} WHERE ip = :ip ORDER BY id DESC"
+        );
         $stmt->execute(['ip' => $ip]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -64,12 +75,12 @@ final class SqliteStorage implements StorageInterface
 
     public function clear(): void
     {
-        $this->pdo->exec('DELETE FROM ip_logs');
+        $this->pdo->exec("DELETE FROM {$this->tableName}");
     }
 
     public function isBanned(string $ip): bool
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM banned_ips WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("SELECT 1 FROM {$this->bannedTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
 
         return $stmt->fetch() !== false;
@@ -77,13 +88,13 @@ final class SqliteStorage implements StorageInterface
 
     public function banIp(string $ip): void
     {
-        $stmt = $this->pdo->prepare('INSERT OR IGNORE INTO banned_ips (ip) VALUES (:ip)');
+        $stmt = $this->pdo->prepare("INSERT OR IGNORE INTO {$this->bannedTableName} (ip) VALUES (:ip)");
         $stmt->execute(['ip' => $ip]);
     }
 
     public function unbanIp(string $ip): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM banned_ips WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("DELETE FROM {$this->bannedTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
     }
 
@@ -92,21 +103,20 @@ final class SqliteStorage implements StorageInterface
      */
     public function getBannedIps(): array
     {
-        $stmt = $this->pdo->query('SELECT ip FROM banned_ips');
-        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $stmt = $this->pdo->query("SELECT ip FROM {$this->bannedTableName}");
 
-        return $rows;
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     public function clearBans(): void
     {
-        $this->pdo->exec('DELETE FROM banned_ips');
+        $this->pdo->exec("DELETE FROM {$this->bannedTableName}");
     }
 
     public function recordRequest(string $ip, int $ttlSeconds): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rate_limits (ip, timestamp) VALUES (:ip, :timestamp)'
+            "INSERT INTO {$this->rateLimitTableName} (ip, timestamp) VALUES (:ip, :timestamp)"
         );
         $stmt->execute([
             'ip' => $ip,
@@ -114,7 +124,7 @@ final class SqliteStorage implements StorageInterface
         ]);
 
         $stmt = $this->pdo->prepare(
-            'DELETE FROM rate_limits WHERE ip = :ip AND timestamp < :cutoff'
+            "DELETE FROM {$this->rateLimitTableName} WHERE ip = :ip AND timestamp < :cutoff"
         );
         $stmt->execute([
             'ip' => $ip,
@@ -124,7 +134,7 @@ final class SqliteStorage implements StorageInterface
 
     public function getRequestCount(string $ip): int
     {
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rate_limits WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->rateLimitTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
 
         return (int) $stmt->fetchColumn();
@@ -132,28 +142,28 @@ final class SqliteStorage implements StorageInterface
 
     private function initializeSchema(): void
     {
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS ip_logs (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->tableName} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ip TEXT NOT NULL,
                 user_agent TEXT,
                 timestamp DATETIME NOT NULL
             )
-        ');
+        ");
 
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS banned_ips (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->bannedTableName} (
                 ip TEXT PRIMARY KEY
             )
-        ');
+        ");
 
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS rate_limits (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->rateLimitTableName} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ip TEXT NOT NULL,
                 timestamp INTEGER NOT NULL
             )
-        ');
+        ");
     }
 
     /**

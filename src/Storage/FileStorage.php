@@ -13,23 +13,56 @@ final class FileStorage implements StorageInterface
 
     private string $metaFilePath;
 
-    private ?array $cache = null;
+    private int $maxFileSizeBytes;
+
+    private int $maxFiles;
 
     private ?array $metaCache = null;
 
-    public function __construct(string $filePath)
-    {
+    public function __construct(
+        string $filePath,
+        ?int $maxFileSizeBytes = null,
+        ?int $maxFiles = null
+    ) {
         $this->filePath = $filePath;
         $this->metaFilePath = $filePath . '.meta.json';
+        $this->maxFileSizeBytes = $maxFileSizeBytes ?? 10 * 1024 * 1024;
+        $this->maxFiles = $maxFiles ?? 5;
         $this->ensureDirectoryExists();
     }
 
     public function save(LogEntry $entry): void
     {
-        $entries = $this->readAll();
-        $entries[] = $entry;
-        $this->writeAll($entries);
-        $this->cache = null;
+        $this->checkRotation();
+
+        $data = json_encode([
+            'ip' => $entry->getIp(),
+            'userAgent' => $entry->getUserAgent(),
+            'timestamp' => $entry->getTimestamp()->format(\DateTimeInterface::ISO8601),
+        ]);
+
+        if ($data === false) {
+            throw new RuntimeException('Failed to encode log entry');
+        }
+
+        $line = $data . "\n";
+
+        $fp = fopen($this->filePath, 'a');
+        if ($fp === false) {
+            throw new RuntimeException("Failed to open log file: {$this->filePath}");
+        }
+
+        try {
+            if (flock($fp, LOCK_EX) === false) {
+                throw new RuntimeException('Failed to acquire file lock');
+            }
+
+            fwrite($fp, $line);
+
+            flock($fp, LOCK_UN);
+        } finally {
+            fclose($fp);
+        }
     }
 
     /**
@@ -37,7 +70,22 @@ final class FileStorage implements StorageInterface
      */
     public function getAll(): array
     {
-        return $this->readAll();
+        $entries = [];
+
+        $pattern = preg_replace('/\.json$/', '*.json', $this->filePath);
+        $files = glob($pattern);
+
+        if ($files === false) {
+            return [];
+        }
+
+        sort($files);
+
+        foreach ($files as $file) {
+            $entries = array_merge($entries, $this->readFile($file));
+        }
+
+        return $entries;
     }
 
     /**
@@ -45,18 +93,24 @@ final class FileStorage implements StorageInterface
      */
     public function getByIp(string $ip): array
     {
-        return array_values(
-            array_filter(
-                $this->readAll(),
-                fn(LogEntry $entry) => $entry->getIp() === $ip
-            )
+        return array_filter(
+            $this->getAll(),
+            fn(LogEntry $entry) => $entry->getIp() === $ip
         );
     }
 
     public function clear(): void
     {
-        $this->writeAll([]);
-        $this->cache = null;
+        $pattern = preg_replace('/\.json$/', '*.json', $this->filePath);
+        $files = glob($pattern);
+
+        if ($files === false) {
+            return;
+        }
+
+        foreach ($files as $file) {
+            unlink($file);
+        }
     }
 
     public function isBanned(string $ip): bool
@@ -126,58 +180,75 @@ final class FileStorage implements StorageInterface
     /**
      * @return array<int, LogEntry>
      */
-    private function readAll(): array
+    private function readFile(string $filePath): array
     {
-        if ($this->cache !== null) {
-            return $this->cache;
-        }
-
-        if (!file_exists($this->filePath)) {
+        if (!file_exists($filePath)) {
             return [];
         }
 
-        $content = file_get_contents($this->filePath);
+        $content = file_get_contents($filePath);
         if ($content === false || $content === '') {
             return [];
         }
 
-        $data = json_decode($content, true);
-        if (!is_array($data)) {
-            return [];
-        }
-
         $entries = [];
-        foreach ($data as $item) {
-            $entry = new LogEntry($item['ip'], $item['userAgent'] ?? null);
-            $entries[] = $entry;
-        }
+        foreach (explode("\n", trim($content)) as $line) {
+            if ($line === '') {
+                continue;
+            }
 
-        $this->cache = $entries;
+            $data = json_decode($line, true);
+            if (!is_array($data) || !isset($data['ip'])) {
+                continue;
+            }
+
+            $entries[] = new LogEntry($data['ip'], $data['userAgent'] ?? null);
+        }
 
         return $entries;
     }
 
-    /**
-     * @param array<int, LogEntry> $entries
-     */
-    private function writeAll(array $entries): void
+    private function checkRotation(): void
     {
-        $data = array_map(
-            fn(LogEntry $entry) => [
-                'ip' => $entry->getIp(),
-                'userAgent' => $entry->getUserAgent(),
-                'timestamp' => $entry->getTimestamp()->format(\DateTimeInterface::ISO8601),
-            ],
-            $entries
-        );
-
-        $json = json_encode($data, JSON_PRETTY_PRINT);
-        if ($json === false) {
-            throw new RuntimeException('Failed to encode log entries');
+        if (!file_exists($this->filePath)) {
+            return;
         }
 
-        if (file_put_contents($this->filePath, $json) === false) {
-            throw new RuntimeException("Failed to write to log file: {$this->filePath}");
+        $size = filesize($this->filePath);
+        if ($size === false || $size < $this->maxFileSizeBytes) {
+            return;
+        }
+
+        $this->rotateFile();
+    }
+
+    private function rotateFile(): void
+    {
+        $basePath = preg_replace('/\.json$/', '', $this->filePath);
+        $timestamp = date('Y-m-d-His');
+
+        $rotatedPath = "{$basePath}.{$timestamp}.json";
+
+        rename($this->filePath, $rotatedPath);
+
+        $this->cleanOldFiles();
+    }
+
+    private function cleanOldFiles(): void
+    {
+        $pattern = preg_replace('/\.json$/', '.*.json', $this->filePath);
+        $files = glob($pattern);
+
+        if ($files === false || count($files) <= $this->maxFiles) {
+            return;
+        }
+
+        usort($files, fn($a, $b) => filemtime($b) - filemtime($a));
+
+        $toDelete = array_slice($files, $this->maxFiles);
+
+        foreach ($toDelete as $file) {
+            unlink($file);
         }
     }
 

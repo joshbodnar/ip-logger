@@ -11,9 +11,18 @@ final class MySqlStorage implements StorageInterface
 {
     private \PDO $pdo;
 
-    public function __construct(\PDO $pdo)
+    private string $tableName;
+
+    private string $bannedTableName;
+
+    private string $rateLimitTableName;
+
+    public function __construct(\PDO $pdo, ?string $tableName = null)
     {
         $this->pdo = $pdo;
+        $this->tableName = $tableName ?? 'ip_logs';
+        $this->bannedTableName = 'banned_ips';
+        $this->rateLimitTableName = 'rate_limits';
         $this->initializeSchema();
     }
 
@@ -22,7 +31,8 @@ final class MySqlStorage implements StorageInterface
         string $database,
         string $username,
         string $password,
-        int $port = 3306
+        int $port = 3306,
+        ?string $tableName = null
     ): self {
         $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
 
@@ -31,13 +41,13 @@ final class MySqlStorage implements StorageInterface
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);
 
-        return new self($pdo);
+        return new self($pdo, $tableName);
     }
 
     public function save(LogEntry $entry): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO ip_logs (ip, user_agent, timestamp) VALUES (:ip, :userAgent, :timestamp)'
+            "INSERT INTO {$this->tableName} (ip, user_agent, timestamp) VALUES (:ip, :userAgent, :timestamp)"
         );
 
         $stmt->execute([
@@ -52,10 +62,9 @@ final class MySqlStorage implements StorageInterface
      */
     public function getAll(): array
     {
-        $stmt = $this->pdo->query('SELECT ip, user_agent, timestamp FROM ip_logs ORDER BY id DESC');
-        $rows = $stmt->fetchAll();
+        $stmt = $this->pdo->query("SELECT ip, user_agent, timestamp FROM {$this->tableName} ORDER BY id DESC");
 
-        return $this->rowsToEntries($rows);
+        return $this->rowsToEntries($stmt->fetchAll());
     }
 
     /**
@@ -63,21 +72,22 @@ final class MySqlStorage implements StorageInterface
      */
     public function getByIp(string $ip): array
     {
-        $stmt = $this->pdo->prepare('SELECT ip, user_agent, timestamp FROM ip_logs WHERE ip = :ip ORDER BY id DESC');
+        $stmt = $this->pdo->prepare(
+            "SELECT ip, user_agent, timestamp FROM {$this->tableName} WHERE ip = :ip ORDER BY id DESC"
+        );
         $stmt->execute(['ip' => $ip]);
-        $rows = $stmt->fetchAll();
 
-        return $this->rowsToEntries($rows);
+        return $this->rowsToEntries($stmt->fetchAll());
     }
 
     public function clear(): void
     {
-        $this->pdo->exec('DELETE FROM ip_logs');
+        $this->pdo->exec("DELETE FROM {$this->tableName}");
     }
 
     public function isBanned(string $ip): bool
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM banned_ips WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("SELECT 1 FROM {$this->bannedTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
 
         return $stmt->fetch() !== false;
@@ -85,13 +95,13 @@ final class MySqlStorage implements StorageInterface
 
     public function banIp(string $ip): void
     {
-        $stmt = $this->pdo->prepare('INSERT IGNORE INTO banned_ips (ip) VALUES (:ip)');
+        $stmt = $this->pdo->prepare("INSERT IGNORE INTO {$this->bannedTableName} (ip) VALUES (:ip)");
         $stmt->execute(['ip' => $ip]);
     }
 
     public function unbanIp(string $ip): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM banned_ips WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("DELETE FROM {$this->bannedTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
     }
 
@@ -100,21 +110,20 @@ final class MySqlStorage implements StorageInterface
      */
     public function getBannedIps(): array
     {
-        $stmt = $this->pdo->query('SELECT ip FROM banned_ips');
-        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $stmt = $this->pdo->query("SELECT ip FROM {$this->bannedTableName}");
 
-        return $rows;
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     public function clearBans(): void
     {
-        $this->pdo->exec('DELETE FROM banned_ips');
+        $this->pdo->exec("DELETE FROM {$this->bannedTableName}");
     }
 
     public function recordRequest(string $ip, int $ttlSeconds): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rate_limits (ip, timestamp) VALUES (:ip, :timestamp)'
+            "INSERT INTO {$this->rateLimitTableName} (ip, timestamp) VALUES (:ip, :timestamp)"
         );
         $stmt->execute([
             'ip' => $ip,
@@ -122,7 +131,7 @@ final class MySqlStorage implements StorageInterface
         ]);
 
         $stmt = $this->pdo->prepare(
-            'DELETE FROM rate_limits WHERE ip = :ip AND timestamp < :cutoff'
+            "DELETE FROM {$this->rateLimitTableName} WHERE ip = :ip AND timestamp < :cutoff"
         );
         $stmt->execute([
             'ip' => $ip,
@@ -132,7 +141,7 @@ final class MySqlStorage implements StorageInterface
 
     public function getRequestCount(string $ip): int
     {
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rate_limits WHERE ip = :ip');
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->rateLimitTableName} WHERE ip = :ip");
         $stmt->execute(['ip' => $ip]);
 
         return (int) $stmt->fetchColumn();
@@ -140,8 +149,8 @@ final class MySqlStorage implements StorageInterface
 
     private function initializeSchema(): void
     {
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS ip_logs (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->tableName} (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 ip VARCHAR(45) NOT NULL,
                 user_agent VARCHAR(255),
@@ -149,23 +158,23 @@ final class MySqlStorage implements StorageInterface
                 INDEX idx_ip (ip),
                 INDEX idx_timestamp (timestamp)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ');
+        ");
 
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS banned_ips (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->bannedTableName} (
                 ip VARCHAR(45) PRIMARY KEY
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ');
+        ");
 
-        $this->pdo->exec('
-            CREATE TABLE IF NOT EXISTS rate_limits (
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$this->rateLimitTableName} (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 ip VARCHAR(45) NOT NULL,
                 timestamp INT NOT NULL,
                 INDEX idx_ip (ip),
                 INDEX idx_timestamp (timestamp)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ');
+        ");
     }
 
     /**
