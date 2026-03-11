@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace IpLogger\Storage;
 
 use IpLogger\Entity\LogEntry;
-use InvalidArgumentException;
 use RuntimeException;
 
 final class SqliteStorage implements StorageInterface
@@ -68,6 +67,69 @@ final class SqliteStorage implements StorageInterface
         $this->pdo->exec('DELETE FROM ip_logs');
     }
 
+    public function isBanned(string $ip): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM banned_ips WHERE ip = :ip');
+        $stmt->execute(['ip' => $ip]);
+
+        return $stmt->fetch() !== false;
+    }
+
+    public function banIp(string $ip): void
+    {
+        $stmt = $this->pdo->prepare('INSERT OR IGNORE INTO banned_ips (ip) VALUES (:ip)');
+        $stmt->execute(['ip' => $ip]);
+    }
+
+    public function unbanIp(string $ip): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM banned_ips WHERE ip = :ip');
+        $stmt->execute(['ip' => $ip]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function getBannedIps(): array
+    {
+        $stmt = $this->pdo->query('SELECT ip FROM banned_ips');
+        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        return $rows;
+    }
+
+    public function clearBans(): void
+    {
+        $this->pdo->exec('DELETE FROM banned_ips');
+    }
+
+    public function recordRequest(string $ip, int $ttlSeconds): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rate_limits (ip, timestamp) VALUES (:ip, :timestamp)'
+        );
+        $stmt->execute([
+            'ip' => $ip,
+            'timestamp' => time(),
+        ]);
+
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM rate_limits WHERE ip = :ip AND timestamp < :cutoff'
+        );
+        $stmt->execute([
+            'ip' => $ip,
+            'cutoff' => time() - $ttlSeconds,
+        ]);
+    }
+
+    public function getRequestCount(string $ip): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rate_limits WHERE ip = :ip');
+        $stmt->execute(['ip' => $ip]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     private function initializeSchema(): void
     {
         $this->pdo->exec('
@@ -76,6 +138,20 @@ final class SqliteStorage implements StorageInterface
                 ip TEXT NOT NULL,
                 user_agent TEXT,
                 timestamp DATETIME NOT NULL
+            )
+        ');
+
+        $this->pdo->exec('
+            CREATE TABLE IF NOT EXISTS banned_ips (
+                ip TEXT PRIMARY KEY
+            )
+        ');
+
+        $this->pdo->exec('
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
             )
         ');
     }

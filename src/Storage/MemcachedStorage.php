@@ -13,6 +13,8 @@ final class MemcachedStorage implements StorageInterface
 
     private string $keyPrefix;
 
+    private const DEFAULT_TTL = 2592000;
+
     public function __construct(\Memcached $memcached, string $keyPrefix = 'ip_logger:')
     {
         $this->memcached = $memcached;
@@ -35,7 +37,7 @@ final class MemcachedStorage implements StorageInterface
             throw new RuntimeException('Failed to serialize log entry');
         }
 
-        $this->memcached->set($key, $serialized, 2592000);
+        $this->memcached->set($key, $serialized, self::DEFAULT_TTL);
     }
 
     /**
@@ -43,21 +45,12 @@ final class MemcachedStorage implements StorageInterface
      */
     public function getAll(): array
     {
-        $keys = $this->memcached->getAllKeys();
-        if ($keys === false) {
+        $keys = $this->getLogKeys();
+        if (empty($keys)) {
             return [];
         }
 
-        $matchingKeys = array_filter(
-            $keys,
-            fn(string $key) => str_starts_with($key, $this->keyPrefix)
-        );
-
-        if (empty($matchingKeys)) {
-            return [];
-        }
-
-        return $this->fetchEntries(array_values($matchingKeys));
+        return $this->fetchEntries($keys);
     }
 
     /**
@@ -65,17 +58,13 @@ final class MemcachedStorage implements StorageInterface
      */
     public function getByIp(string $ip): array
     {
-        $allKeys = $this->memcached->getAllKeys();
-        if ($allKeys === false) {
+        $keys = $this->getLogKeys();
+        if (empty($keys)) {
             return [];
         }
 
         $matchingKeys = [];
-        foreach ($allKeys as $key) {
-            if (!str_starts_with($key, $this->keyPrefix)) {
-                continue;
-            }
-
+        foreach ($keys as $key) {
             $data = $this->memcached->get($key);
             if ($data !== false && $this->matchesIp($data, $ip)) {
                 $matchingKeys[] = $key;
@@ -87,19 +76,103 @@ final class MemcachedStorage implements StorageInterface
 
     public function clear(): void
     {
-        $keys = $this->memcached->getAllKeys();
-        if ($keys === false) {
-            return;
+        $keys = $this->getLogKeys();
+        if (!empty($keys)) {
+            $this->memcached->deleteMulti($keys);
+        }
+    }
+
+    public function isBanned(string $ip): bool
+    {
+        return $this->memcached->get($this->keyPrefix . 'banned:' . $ip) !== false;
+    }
+
+    public function banIp(string $ip): void
+    {
+        $this->memcached->set($this->keyPrefix . 'banned:' . $ip, '1', self::DEFAULT_TTL);
+    }
+
+    public function unbanIp(string $ip): void
+    {
+        $this->memcached->delete($this->keyPrefix . 'banned:' . $ip);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function getBannedIps(): array
+    {
+        $allKeys = $this->memcached->getAllKeys();
+        if ($allKeys === false) {
+            return [];
         }
 
-        $matchingKeys = array_filter(
-            $keys,
-            fn(string $key) => str_starts_with($key, $this->keyPrefix)
+        $bannedKeys = array_filter(
+            $allKeys,
+            fn(string $key) => str_starts_with($key, $this->keyPrefix . 'banned:')
         );
 
-        if (!empty($matchingKeys)) {
-            $this->memcached->deleteMulti($matchingKeys);
+        return array_map(
+            fn(string $key) => str_replace($this->keyPrefix . 'banned:', '', $key),
+            $bannedKeys
+        );
+    }
+
+    public function clearBans(): void
+    {
+        $bannedIps = $this->getBannedIps();
+        $keys = array_map(
+            fn(string $ip) => $this->keyPrefix . 'banned:' . $ip,
+            $bannedIps
+        );
+
+        if (!empty($keys)) {
+            $this->memcached->deleteMulti($keys);
         }
+    }
+
+    public function recordRequest(string $ip, int $ttlSeconds): void
+    {
+        $key = $this->keyPrefix . 'rate:' . $ip;
+        $existing = $this->memcached->get($key);
+
+        $requests = [];
+        if ($existing !== false) {
+            $requests = is_array($existing) ? $existing : [];
+        }
+
+        $requests[] = time();
+        $requests = array_filter($requests, fn(int $ts) => $ts > (time() - $ttlSeconds));
+
+        $this->memcached->set($key, $requests, $ttlSeconds);
+    }
+
+    public function getRequestCount(string $ip): int
+    {
+        $key = $this->keyPrefix . 'rate:' . $ip;
+        $existing = $this->memcached->get($key);
+
+        if ($existing === false) {
+            return 0;
+        }
+
+        return is_array($existing) ? count($existing) : 0;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getLogKeys(): array
+    {
+        $allKeys = $this->memcached->getAllKeys();
+        if ($allKeys === false) {
+            return [];
+        }
+
+        return array_filter(
+            $allKeys,
+            fn(string $key) => preg_match('/^' . preg_quote($this->keyPrefix, '/') . 'ip_log_/', $key)
+        );
     }
 
     /**

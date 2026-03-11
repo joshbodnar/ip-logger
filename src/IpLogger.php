@@ -13,14 +13,19 @@ final class IpLogger implements LoggerInterface
 {
     private StorageInterface $storage;
 
-    public function __construct(?StorageInterface $storage = null)
+    private IpLoggerConfig $config;
+
+    public function __construct(?StorageInterface $storage = null, ?IpLoggerConfig $config = null)
     {
         $this->storage = $storage ?? new InMemoryStorage();
+        $this->config = $config ?? new IpLoggerConfig();
     }
 
     public function log(string $ip, ?string $userAgent = null): LogEntry
     {
         $this->validateIp($ip);
+        $this->checkBan($ip);
+        $this->checkRateLimit($ip);
 
         $entry = new LogEntry($ip, $userAgent);
         $this->storage->save($entry);
@@ -57,6 +62,63 @@ final class IpLogger implements LoggerInterface
     public function clear(): void
     {
         $this->storage->clear();
+    }
+
+    public function isBanned(string $ip): bool
+    {
+        return $this->storage->isBanned($ip);
+    }
+
+    public function banIp(string $ip): void
+    {
+        $this->validateIp($ip);
+        $this->storage->banIp($ip);
+    }
+
+    public function unbanIp(string $ip): void
+    {
+        $this->storage->unbanIp($ip);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function getBannedIps(): array
+    {
+        return $this->storage->getBannedIps();
+    }
+
+    public function getConfig(): IpLoggerConfig
+    {
+        return $this->config;
+    }
+
+    public function setConfig(IpLoggerConfig $config): self
+    {
+        $this->config = $config;
+
+        return $this;
+    }
+
+    private function checkBan(string $ip): void
+    {
+        if ($this->config->isBanEnabled() && $this->storage->isBanned($ip)) {
+            throw new InvalidIpException("IP address is banned: {$ip}");
+        }
+    }
+
+    private function checkRateLimit(string $ip): void
+    {
+        if (!$this->config->isRateLimitEnabled()) {
+            return;
+        }
+
+        $this->storage->recordRequest($ip, $this->config->getRateLimitWindowSeconds());
+        $count = $this->storage->getRequestCount($ip);
+
+        if ($count > $this->config->getRateLimitMaxRequests()) {
+            throw new InvalidIpException("Rate limit exceeded for IP: {$ip}");
+        }
     }
 
     private function validateIp(string $ip): void

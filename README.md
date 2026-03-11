@@ -37,7 +37,26 @@ $logger->logFromClientInfo($clientInfo);
 $logger->getAll();
 $logger->getByIp('192.168.1.1');
 $logger->clear();
+
+// Ban an IP
+$logger->banIp('192.168.1.100');
+$logger->isBanned('192.168.1.100');
+$logger->unbanIp('192.168.1.100');
 ```
+
+## Configuration
+
+```php
+$config = (new IpLoggerConfig())
+    ->setBanEnabled(true)                        // Enable IP banning
+    ->setRateLimitEnabled(true)                  // Enable rate limiting
+    ->setRateLimitMaxRequests(100)               // Max requests per window
+    ->setRateLimitWindowSeconds(60);              // Window size in seconds
+
+$logger = new IpLogger($storage, $config);
+```
+
+When bans or rate limiting are enabled, `log()` and `logFromClientInfo()` will throw `InvalidIpException`.
 
 ## Client IP Detection
 

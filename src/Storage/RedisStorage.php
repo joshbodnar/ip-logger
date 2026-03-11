@@ -82,6 +82,68 @@ final class RedisStorage implements StorageInterface
         $this->redis->del($this->keyPrefix . 'ids');
     }
 
+    public function isBanned(string $ip): bool
+    {
+        return $this->redis->exists($this->keyPrefix . 'banned:' . $ip);
+    }
+
+    public function banIp(string $ip): void
+    {
+        $this->redis->setex($this->keyPrefix . 'banned:' . $ip, self::DEFAULT_TTL, '1');
+    }
+
+    public function unbanIp(string $ip): void
+    {
+        $this->redis->del($this->keyPrefix . 'banned:' . $ip);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function getBannedIps(): array
+    {
+        $keys = $this->redis->keys($this->keyPrefix . 'banned:*');
+        if (empty($keys)) {
+            return [];
+        }
+
+        return array_map(
+            fn(string $key) => str_replace($this->keyPrefix . 'banned:', '', $key),
+            $keys
+        );
+    }
+
+    public function clearBans(): void
+    {
+        $keys = $this->redis->keys($this->keyPrefix . 'banned:*');
+        if (!empty($keys)) {
+            $this->redis->del($keys);
+        }
+    }
+
+    public function recordRequest(string $ip, int $ttlSeconds): void
+    {
+        $this->redis->zAdd(
+            $this->keyPrefix . 'rate_limit:' . $ip,
+            time(),
+            (string) time()
+        );
+        $this->redis->zRemRangeByScore(
+            $this->keyPrefix . 'rate_limit:' . $ip,
+            '0',
+            (string) (time() - $ttlSeconds)
+        );
+    }
+
+    public function getRequestCount(string $ip): int
+    {
+        return (int) $this->redis->zCount(
+            $this->keyPrefix . 'rate_limit:' . $ip,
+            (string) (time() - 86400),
+            (string) time()
+        );
+    }
+
     /**
      * @param array<int, string> $keys
      *

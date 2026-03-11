@@ -21,4 +21,21 @@ interface StorageInterface
     public function getByIp(string $ip): array;
 
     public function clear(): void;
+
+    public function isBanned(string $ip): bool;
+
+    public function banIp(string $ip): void;
+
+    public function unbanIp(string $ip): void;
+
+    /**
+     * @return array<int, string>
+     */
+    public function getBannedIps(): array;
+
+    public function clearBans(): void;
+
+    public function recordRequest(string $ip, int $ttlSeconds): void;
+
+    public function getRequestCount(string $ip): int;
 }
