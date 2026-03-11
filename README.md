@@ -5,7 +5,7 @@ A PHP package for logging IP addresses with flexible storage options.
 ## Installation
 
 ```bash
-composer require ip-logger/package
+composer require joshbodnar/ip-logger
 ```
 
 ## Usage

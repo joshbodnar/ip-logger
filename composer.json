@@ -1,5 +1,5 @@
 {
-    "name": "ip-logger/package",
+    "name": "joshbodnar/ip-logger",
     "description": "A PHP package for logging IP addresses",
     "type": "library",
     "license": "MIT",
