@@ -4,8 +4,44 @@ A PHP package for logging IP addresses with flexible storage options.
 
 ## Installation
 
+Add this to your `composer.json`:
+
+```json
+{
+    "require": {
+        "joshbodnar/ip-logger": "^1.0"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/joshbodnar/ip-logger"
+        }
+    ]
+}
+```
+
+Or require directly from the command line:
+
 ```bash
-composer require joshbodnar/ip-logger
+composer require joshbodnar/ip-logger:dev-master --repository='{"type":"vcs","url":"https://github.com/joshbodnar/ip-logger"}'
+```
+
+### Without Packagist (Alternative)
+
+If you don't want to use Packagist, add the repository directly to your project's `composer.json`:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/joshbodnar/ip-logger"
+        }
+    ],
+    "require": {
+        "joshbodnar/ip-logger": "^1.0"
+    }
+}
 ```
 
 ## Usage
