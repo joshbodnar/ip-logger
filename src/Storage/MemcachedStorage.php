@@ -32,12 +32,7 @@ final class MemcachedStorage implements StorageInterface
             'timestamp' => $entry->getTimestamp()->format(\DateTimeInterface::ISO8601),
         ];
 
-        $serialized = serialize($data);
-        if ($serialized === false) {
-            throw new RuntimeException('Failed to serialize log entry');
-        }
-
-        $this->memcached->set($key, $serialized, self::DEFAULT_TTL);
+        $this->memcached->set($key, serialize($data), self::DEFAULT_TTL);
     }
 
     /**
@@ -262,6 +257,14 @@ final class MemcachedStorage implements StorageInterface
             return null;
         }
 
-        return new LogEntry($decoded['ip'], $decoded['userAgent'] ?? null);
+        $timestamp = null;
+        if (isset($decoded['timestamp'])) {
+            $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ISO8601, $decoded['timestamp']);
+            if ($parsed !== false) {
+                $timestamp = $parsed;
+            }
+        }
+
+        return new LogEntry($decoded['ip'], $decoded['userAgent'] ?? null, $timestamp);
     }
 }

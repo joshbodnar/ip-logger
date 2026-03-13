@@ -12,11 +12,11 @@ final class LogEntry
 
     private \DateTimeImmutable $timestamp;
 
-    public function __construct(string $ip, ?string $userAgent = null)
+    public function __construct(string $ip, ?string $userAgent = null, ?\DateTimeImmutable $timestamp = null)
     {
         $this->ip = $ip;
         $this->userAgent = $userAgent;
-        $this->timestamp = new \DateTimeImmutable();
+        $this->timestamp = $timestamp ?? new \DateTimeImmutable();
     }
 
     public function getIp(): string

@@ -32,12 +32,7 @@ final class RedisStorage implements StorageInterface
             'timestamp' => $entry->getTimestamp()->format(\DateTimeInterface::ISO8601),
         ];
 
-        $serialized = serialize($data);
-        if ($serialized === false) {
-            throw new RuntimeException('Failed to serialize log entry');
-        }
-
-        $this->redis->setex($key, self::DEFAULT_TTL, $serialized);
+        $this->redis->setex($key, self::DEFAULT_TTL, serialize($data));
         $this->redis->sAdd($this->keyPrefix . 'ids', $key);
     }
 
@@ -200,6 +195,14 @@ final class RedisStorage implements StorageInterface
             return null;
         }
 
-        return new LogEntry($decoded['ip'], $decoded['userAgent'] ?? null);
+        $timestamp = null;
+        if (isset($decoded['timestamp'])) {
+            $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ISO8601, $decoded['timestamp']);
+            if ($parsed !== false) {
+                $timestamp = $parsed;
+            }
+        }
+
+        return new LogEntry($decoded['ip'], $decoded['userAgent'] ?? null, $timestamp);
     }
 }

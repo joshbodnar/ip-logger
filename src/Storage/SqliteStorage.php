@@ -189,8 +189,15 @@ final class SqliteStorage implements StorageInterface
     {
         $entries = [];
         foreach ($rows as $row) {
-            $entry = new LogEntry($row['ip'], $row['user_agent'] ?? null);
-            $entries[] = $entry;
+            $timestamp = null;
+            if (isset($row['timestamp'])) {
+                $parsed = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $row['timestamp']);
+                if ($parsed !== false) {
+                    $timestamp = $parsed;
+                }
+            }
+
+            $entries[] = new LogEntry($row['ip'], $row['user_agent'] ?? null, $timestamp);
         }
 
         return $entries;

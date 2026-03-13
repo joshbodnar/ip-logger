@@ -93,9 +93,11 @@ final class FileStorage implements StorageInterface
      */
     public function getByIp(string $ip): array
     {
-        return array_filter(
-            $this->getAll(),
-            fn(LogEntry $entry) => $entry->getIp() === $ip
+        return array_values(
+            array_filter(
+                $this->getAll(),
+                fn(LogEntry $entry) => $entry->getIp() === $ip
+            )
         );
     }
 
@@ -122,16 +124,20 @@ final class FileStorage implements StorageInterface
 
     public function banIp(string $ip): void
     {
-        $meta = $this->readMeta();
-        $meta['banned'][$ip] = true;
-        $this->writeMeta($meta);
+        $this->modifyMeta(function (array $meta) use ($ip): array {
+            $meta['banned'][$ip] = true;
+
+            return $meta;
+        });
     }
 
     public function unbanIp(string $ip): void
     {
-        $meta = $this->readMeta();
-        unset($meta['banned'][$ip]);
-        $this->writeMeta($meta);
+        $this->modifyMeta(function (array $meta) use ($ip): array {
+            unset($meta['banned'][$ip]);
+
+            return $meta;
+        });
     }
 
     /**
@@ -146,28 +152,31 @@ final class FileStorage implements StorageInterface
 
     public function clearBans(): void
     {
-        $meta = $this->readMeta();
-        $meta['banned'] = [];
-        $this->writeMeta($meta);
+        $this->modifyMeta(function (array $meta): array {
+            $meta['banned'] = [];
+
+            return $meta;
+        });
     }
 
     public function recordRequest(string $ip, int $ttlSeconds): void
     {
-        $meta = $this->readMeta();
-        $now = time();
+        $this->modifyMeta(function (array $meta) use ($ip, $ttlSeconds): array {
+            $now = time();
 
-        if (!isset($meta['requests'][$ip])) {
-            $meta['requests'][$ip] = [];
-        }
+            if (!isset($meta['requests'][$ip])) {
+                $meta['requests'][$ip] = [];
+            }
 
-        $meta['requests'][$ip][] = $now;
+            $meta['requests'][$ip][] = $now;
 
-        $meta['requests'][$ip] = array_filter(
-            $meta['requests'][$ip],
-            fn(int $timestamp) => $timestamp > ($now - $ttlSeconds)
-        );
+            $meta['requests'][$ip] = array_values(array_filter(
+                $meta['requests'][$ip],
+                fn(int $timestamp) => $timestamp > ($now - $ttlSeconds)
+            ));
 
-        $this->writeMeta($meta);
+            return $meta;
+        });
     }
 
     public function getRequestCount(string $ip): int
@@ -202,7 +211,15 @@ final class FileStorage implements StorageInterface
                 continue;
             }
 
-            $entries[] = new LogEntry($data['ip'], $data['userAgent'] ?? null);
+            $timestamp = null;
+            if (isset($data['timestamp'])) {
+                $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ISO8601, $data['timestamp']);
+                if ($parsed !== false) {
+                    $timestamp = $parsed;
+                }
+            }
+
+            $entries[] = new LogEntry($data['ip'], $data['userAgent'] ?? null, $timestamp);
         }
 
         return $entries;
@@ -258,75 +275,90 @@ final class FileStorage implements StorageInterface
             return $this->metaCache;
         }
 
-        // Use file locking to prevent race conditions
-        $lockFile = $this->metaFilePath . '.lock';
-        $lockHandle = fopen($lockFile, 'c+');
-        if ($lockHandle === false) {
-            throw new RuntimeException("Failed to open lock file: {$lockFile}");
-        }
-
-        // Acquire exclusive lock to ensure atomic read
-        if (!flock($lockHandle, LOCK_EX)) {
-            fclose($lockHandle);
-            throw new RuntimeException("Failed to acquire lock for reading metadata");
-        }
-
+        $lock = $this->acquireLock(LOCK_SH);
         try {
-            if (!file_exists($this->metaFilePath)) {
-                return ['banned' => [], 'requests' => []];
-            }
-
-            $content = file_get_contents($this->metaFilePath);
-            if ($content === false || $content === '') {
-                return ['banned' => [], 'requests' => []];
-            }
-
-            $data = json_decode($content, true);
-            if (!is_array($data)) {
-                return ['banned' => [], 'requests' => []];
-            }
-
+            $data = $this->loadMetaFile();
             $this->metaCache = $data;
+
             return $data;
         } finally {
-            flock($lockHandle, LOCK_UN);
-            fclose($lockHandle);
+            $this->releaseLock($lock);
         }
     }
 
-    private function writeMeta(array $meta): void
+    /**
+     * Atomically reads, modifies, and writes metadata under an exclusive lock.
+     * This prevents TOCTOU races in compound read-modify-write operations.
+     *
+     * @param callable(array): array $operation
+     */
+    private function modifyMeta(callable $operation): void
+    {
+        $lock = $this->acquireLock(LOCK_EX);
+        try {
+            $meta = $this->loadMetaFile();
+            $meta = $operation($meta);
+            $this->saveMetaFile($meta);
+            $this->metaCache = $meta;
+        } finally {
+            $this->releaseLock($lock);
+        }
+    }
+
+    private function loadMetaFile(): array
+    {
+        if (!file_exists($this->metaFilePath)) {
+            return ['banned' => [], 'requests' => []];
+        }
+
+        $content = file_get_contents($this->metaFilePath);
+        if ($content === false || $content === '') {
+            return ['banned' => [], 'requests' => []];
+        }
+
+        $data = json_decode($content, true);
+
+        return is_array($data) ? $data : ['banned' => [], 'requests' => []];
+    }
+
+    private function saveMetaFile(array $meta): void
     {
         $json = json_encode($meta, JSON_PRETTY_PRINT);
         if ($json === false) {
             throw new RuntimeException('Failed to encode metadata');
         }
 
-        // Use file locking to prevent race conditions
+        if (file_put_contents($this->metaFilePath, $json) === false) {
+            throw new RuntimeException("Failed to write metadata file: {$this->metaFilePath}");
+        }
+    }
+
+    /**
+     * @return resource
+     */
+    private function acquireLock(int $lockType): mixed
+    {
         $lockFile = $this->metaFilePath . '.lock';
         $lockHandle = fopen($lockFile, 'c+');
         if ($lockHandle === false) {
             throw new RuntimeException("Failed to open lock file: {$lockFile}");
         }
 
-        // Acquire exclusive lock to ensure atomic write
-        if (!flock($lockHandle, LOCK_EX)) {
+        if (!flock($lockHandle, $lockType)) {
             fclose($lockHandle);
-            throw new RuntimeException("Failed to acquire lock for writing metadata");
+            throw new RuntimeException('Failed to acquire metadata lock');
         }
 
-        try {
-            // Ensure directory exists before writing
-            $this->ensureDirectoryExists();
+        return $lockHandle;
+    }
 
-            if (file_put_contents($this->metaFilePath, $json, LOCK_EX) === false) {
-                throw new RuntimeException("Failed to write metadata file: {$this->metaFilePath}");
-            }
-        } finally {
-            flock($lockHandle, LOCK_UN);
-            fclose($lockHandle);
-        }
-
-        $this->metaCache = null;
+    /**
+     * @param resource $lockHandle
+     */
+    private function releaseLock(mixed $lockHandle): void
+    {
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
     }
 
     private function ensureDirectoryExists(): void
