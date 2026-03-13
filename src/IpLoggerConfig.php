@@ -33,6 +33,14 @@ final class IpLoggerConfig
 
     public function setRateLimitMaxRequests(int $rateLimitMaxRequests): self
     {
+        if ($rateLimitMaxRequests < 0) {
+            throw new \InvalidArgumentException('Rate limit max requests must be non-negative');
+        }
+
+        if ($rateLimitMaxRequests > 1000000) {
+            throw new \InvalidArgumentException('Rate limit max requests must be less than 1,000,000');
+        }
+
         $this->rateLimitMaxRequests = $rateLimitMaxRequests;
 
         return $this;
@@ -45,6 +53,17 @@ final class IpLoggerConfig
 
     public function setRateLimitWindowSeconds(int $rateLimitWindowSeconds): self
     {
+        if ($rateLimitWindowSeconds <= 0) {
+            throw new \InvalidArgumentException('Rate limit window seconds must be positive');
+        }
+
+        // Maximum of 1 year in seconds
+        if ($rateLimitWindowSeconds > 31536000) {
+            throw new \InvalidArgumentException(
+                'Rate limit window seconds must be less than 1 year (31536000 seconds)'
+            );
+        }
+
         $this->rateLimitWindowSeconds = $rateLimitWindowSeconds;
 
         return $this;

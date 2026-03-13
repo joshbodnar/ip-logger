@@ -89,6 +89,42 @@ final class Psr7ClientInfoTest extends TestCase
         $this->assertSame('192.168.1.1', $clientInfo->getIp());
     }
 
+    public function testTrustedProxyFiltering(): void
+    {
+        $request = $this->createMockRequest(
+            ['REMOTE_ADDR' => '127.0.0.1'],
+            ['X-Forwarded-For' => '192.168.1.1, 10.0.0.1']
+        );
+
+        $clientInfo = new Psr7ClientInfo($request, ['10.0.0.1']);
+
+        $this->assertSame('192.168.1.1', $clientInfo->getIp());
+    }
+
+    public function testAllProxiesTrustedReturnsNull(): void
+    {
+        $request = $this->createMockRequest(
+            ['REMOTE_ADDR' => '127.0.0.1'],
+            ['X-Forwarded-For' => '10.0.0.1, 10.0.0.2']
+        );
+
+        $clientInfo = new Psr7ClientInfo($request, ['10.0.0.1', '10.0.0.2']);
+
+        $this->assertNull($clientInfo->getIp());
+    }
+
+    public function testEmptyTrustedProxyListReturnsFirstIp(): void
+    {
+        $request = $this->createMockRequest(
+            ['REMOTE_ADDR' => '127.0.0.1'],
+            ['X-Forwarded-For' => '192.168.1.1, 10.0.0.1']
+        );
+
+        $clientInfo = new Psr7ClientInfo($request, []);
+
+        $this->assertSame('192.168.1.1', $clientInfo->getIp());
+    }
+
     private function createMockRequest(array $serverParams, array $headers = []): ServerRequestInterface
     {
         $request = $this->createMock(ServerRequestInterface::class);

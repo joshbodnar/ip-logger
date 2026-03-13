@@ -27,6 +27,12 @@ final class MySqlStorage implements StorageInterface
         $this->tableName = $tableName ?? 'ip_logs';
         $this->bannedTableName = $bannedTableName ?? 'banned_ips';
         $this->rateLimitTableName = $rateLimitTableName ?? 'rate_limits';
+
+        // Validate table names to prevent SQL injection
+        $this->validateTableName($this->tableName);
+        $this->validateTableName($this->bannedTableName);
+        $this->validateTableName($this->rateLimitTableName);
+
         $this->initializeSchema();
     }
 
@@ -192,10 +198,32 @@ final class MySqlStorage implements StorageInterface
     {
         $entries = [];
         foreach ($rows as $row) {
-            $entry = new LogEntry($row['ip'], $row['user_agent'] ?? null);
+            $entry = new LogEntry($row['ip'], $row['userAgent'] ?? null);
             $entries[] = $entry;
         }
 
         return $entries;
+    }
+
+    /**
+     * Validates that a table name contains only safe characters
+     *
+     * @param string $tableName
+     * @throws \InvalidArgumentException
+     */
+    private function validateTableName(string $tableName): void
+    {
+        // Table names should only contain letters, numbers, and underscores
+        // and should not start with a number
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $tableName)) {
+            throw new \InvalidArgumentException("Invalid table name: {$tableName}");
+        }
+
+        // Prevent SQL reserved words
+        $reservedWords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TABLE'];
+        $upperTableName = strtoupper($tableName);
+        if (in_array($upperTableName, $reservedWords)) {
+            throw new \InvalidArgumentException("Table name cannot be a reserved SQL word: {$tableName}");
+        }
     }
 }

@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace IpLogger;
 
 use IpLogger\Entity\LogEntry;
+use IpLogger\Client\ClientInfoInterface;
 
 interface LoggerInterface
 {
     public function log(string $ip, ?string $userAgent = null): LogEntry;
+
+    public function logFromClientInfo(ClientInfoInterface $clientInfo): LogEntry;
 
     /**
      * @return array<int, LogEntry>

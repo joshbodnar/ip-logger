@@ -42,6 +42,15 @@ final class MemcachedStorage implements StorageInterface
 
     /**
      * @return array<int, LogEntry>
+     *
+     * WARNING: This operation uses Memcached::getAllKeys() which retrieves
+     * ALL keys in the Memcached instance. This can be very slow/expensive
+     * when the Memcached instance contains many keys (>100000).
+     *
+     * For better performance, consider:
+     * 1. Using a dedicated Memcached instance for IP logging
+     * 2. Restricting the Memcached instance to only this application's keys
+     * 3. Limiting the number of log entries stored in Memcached
      */
     public function getAll(): array
     {
@@ -98,10 +107,19 @@ final class MemcachedStorage implements StorageInterface
     }
 
     /**
+     * Retrieves list of banned IP addresses
+     *
+     * WARNING: This operation uses Memcached::getAllKeys() which retrieves
+     * ALL keys in the Memcached instance. This can be very slow/expensive
+     * when the Memcached instance contains many keys (>100000).
+     *
      * @return array<int, string>
      */
     public function getBannedIps(): array
     {
+        // WARNING: getAllKeys() retrieves ALL keys in Memcached, which can be expensive
+        // on servers with many keys. Consider using a dedicated Memcached instance
+        // or restricting access to a specific namespace/slab for better performance.
         $allKeys = $this->memcached->getAllKeys();
         if ($allKeys === false) {
             return [];
@@ -118,6 +136,17 @@ final class MemcachedStorage implements StorageInterface
         );
     }
 
+    /**
+     * Clear all banned IP addresses
+     *
+     * NOTE: This operation enumerates keys matching the banned IP pattern,
+     * which can be slow/expensive. Additionally, there is a brief window
+     * during which newly banned IPs may be missed if added between the
+     * enumeration and deletion steps.
+     *
+     * For applications requiring atomic ban list clearing, consider using
+     * RedisStorage instead which has better atomic operation support.
+     */
     public function clearBans(): void
     {
         $bannedIps = $this->getBannedIps();
@@ -131,6 +160,17 @@ final class MemcachedStorage implements StorageInterface
         }
     }
 
+    /**
+     * Record a request for rate limiting
+     *
+     * NOTE: This operation is eventually consistent rather than strictly atomic.
+     * Under high concurrent load, request counts may occasionally be slightly
+     * inaccurate due to read-modify-write race conditions. For applications
+     * requiring strict rate limiting accuracy, consider using RedisStorage instead.
+     *
+     * @param string $ip IP address making the request
+     * @param int $ttlSeconds Time-to-live for tracking requests
+     */
     public function recordRequest(string $ip, int $ttlSeconds): void
     {
         $key = $this->keyPrefix . 'rate:' . $ip;
@@ -160,10 +200,20 @@ final class MemcachedStorage implements StorageInterface
     }
 
     /**
+     * Retrieve log entry keys by enumerating all Memcached keys
+     *
+     * WARNING: This uses getAllKeys() which retrieves ALL keys in Memcached,
+     * which can be very slow/expensive when Memcached contains many keys.
+     * This method should only be used on dedicated Memcached instances or
+     * when key namespaces are properly isolated.
+     *
      * @return array<int, string>
      */
     private function getLogKeys(): array
     {
+        // WARNING: getAllKeys() retrieves ALL keys in Memcached, which can be expensive
+        // on servers with many keys. Consider using a dedicated Memcached instance
+        // or restricting access to a specific namespace/slab for better performance.
         $allKeys = $this->memcached->getAllKeys();
         if ($allKeys === false) {
             return [];

@@ -43,6 +43,11 @@ final class RedisStorage implements StorageInterface
 
     /**
      * @return array<int, LogEntry>
+     *
+     * PERFORMANCE NOTE: This method is efficient compared to naive key enumeration.
+     * It uses a Redis Set (`{$this->keyPrefix}ids`) to track all log entry keys,
+     * avoiding expensive KEYS pattern matching. This approach limits memory and
+     * network overhead when retrieving many log entries.
      */
     public function getAll(): array
     {
@@ -113,6 +118,14 @@ final class RedisStorage implements StorageInterface
         );
     }
 
+    /**
+     * Clear all banned IP addresses
+     *
+     * NOTE: This operation uses KEYS command to enumerate all banned IP keys,
+     * which can be slow/expensive for Redis instances with many keys.
+     * Additionally, there is a brief window where newly banned IPs may be
+     * missed if added between the enumeration and deletion steps.
+     */
     public function clearBans(): void
     {
         $keys = $this->redis->keys($this->keyPrefix . 'banned:*');
@@ -137,10 +150,12 @@ final class RedisStorage implements StorageInterface
 
     public function getRequestCount(string $ip): int
     {
+        // Count all entries in the sorted set, which should only contain entries within the TTL window
+        // as old entries are removed in recordRequest
         return (int) $this->redis->zCount(
             $this->keyPrefix . 'rate_limit:' . $ip,
-            (string) (time() - 86400),
-            (string) time()
+            '-inf',
+            '+inf'
         );
     }
 

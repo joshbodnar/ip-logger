@@ -15,14 +15,19 @@ final class Psr7ClientInfo implements ClientInfoInterface
         'X-Cluster-Client-IP',
     ];
 
-    private const TRUSTED_PROXY_IPS = [];
+    /** @var array<string, true> */
+    private array $trustedProxyIps;
 
     private ?string $ip;
 
     private ?string $userAgent;
 
-    public function __construct(ServerRequestInterface $request)
+    /**
+     * @param array<string> $trustedProxyIps List of trusted proxy IP addresses
+     */
+    public function __construct(ServerRequestInterface $request, array $trustedProxyIps = [])
     {
+        $this->trustedProxyIps = array_fill_keys($trustedProxyIps, true);
         $this->ip = $this->extractIp($request);
         $this->userAgent = $request->getHeaderLine('User-Agent') ?: null;
     }
@@ -40,9 +45,16 @@ final class Psr7ClientInfo implements ClientInfoInterface
     private function extractIp(ServerRequestInterface $request): ?string
     {
         foreach (self::PROXY_HEADERS as $header) {
-            $ip = $this->getIpFromHeader($request, $header);
-            if ($ip !== null) {
-                return $ip;
+            $result = $this->getIpFromHeader($request, $header);
+            // If we got a specific IP, return it
+            if ($result !== null) {
+                return $result;
+            }
+
+            // If header exists but all IPs are trusted proxies, return null
+            // rather than continuing to other headers or falling back to direct IP
+            if ($request->getHeaderLine($header) !== '' && $this->allIpsAreTrustedInHeader($request, $header)) {
+                return null;
             }
         }
 
@@ -63,16 +75,17 @@ final class Psr7ClientInfo implements ClientInfoInterface
             return null;
         }
 
-        if (!empty(self::TRUSTED_PROXY_IPS)) {
+        if (!empty($this->trustedProxyIps)) {
             $trustedIps = array_filter($ips, fn(string $ip) => $this->isTrustedProxyIp($ip));
-
-            if (count($trustedIps) === count($ips)) {
-                return null;
-            }
-
             $untrustedIps = array_diff($ips, $trustedIps);
 
-            return reset($untrustedIps);
+            // Return first untrusted IP if any exist
+            if (!empty($untrustedIps)) {
+                return reset($untrustedIps);
+            }
+
+            // All IPs are trusted - return null to indicate we can't identify client IP
+            return null;
         }
 
         return reset($ips);
@@ -99,10 +112,28 @@ final class Psr7ClientInfo implements ClientInfoInterface
 
     private function isTrustedProxyIp(string $ip): bool
     {
-        if (empty(self::TRUSTED_PROXY_IPS)) {
+        if (empty($this->trustedProxyIps)) {
             return false;
         }
 
-        return in_array($ip, self::TRUSTED_PROXY_IPS, true);
+        return isset($this->trustedProxyIps[$ip]);
+    }
+
+    private function allIpsAreTrustedInHeader(ServerRequestInterface $request, string $header): bool
+    {
+        $value = $request->getHeaderLine($header);
+        if ($value === '') {
+            return false;
+        }
+
+        $ips = array_map('trim', explode(',', $value));
+        $ips = array_filter($ips, fn(string $ip) => $this->isValidIp($ip));
+
+        if (empty($ips)) {
+            return false;
+        }
+
+        $trustedIps = array_filter($ips, fn(string $ip) => $this->isTrustedProxyIp($ip));
+        return count($trustedIps) === count($ips) && !empty($this->trustedProxyIps);
     }
 }

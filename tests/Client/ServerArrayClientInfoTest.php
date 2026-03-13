@@ -116,4 +116,37 @@ final class ServerArrayClientInfoTest extends TestCase
 
         $this->assertSame('203.0.113.1', $clientInfo->getIp());
     }
+
+    public function testTrustedProxyFiltering(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '192.168.1.1, 10.0.0.1',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server, ['10.0.0.1']);
+
+        $this->assertSame('192.168.1.1', $clientInfo->getIp());
+    }
+
+    public function testAllProxiesTrustedReturnsNull(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '10.0.0.1, 10.0.0.2',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server, ['10.0.0.1', '10.0.0.2']);
+
+        $this->assertNull($clientInfo->getIp());
+    }
+
+    public function testEmptyTrustedProxyListReturnsFirstIp(): void
+    {
+        $server = [
+            'HTTP_X_FORWARDED_FOR' => '192.168.1.1, 10.0.0.1',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ];
+        $clientInfo = new ServerArrayClientInfo($server, []);
+
+        $this->assertSame('192.168.1.1', $clientInfo->getIp());
+    }
 }

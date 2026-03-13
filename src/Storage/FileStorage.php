@@ -258,23 +258,40 @@ final class FileStorage implements StorageInterface
             return $this->metaCache;
         }
 
-        if (!file_exists($this->metaFilePath)) {
-            return ['banned' => [], 'requests' => []];
+        // Use file locking to prevent race conditions
+        $lockFile = $this->metaFilePath . '.lock';
+        $lockHandle = fopen($lockFile, 'c+');
+        if ($lockHandle === false) {
+            throw new RuntimeException("Failed to open lock file: {$lockFile}");
         }
 
-        $content = file_get_contents($this->metaFilePath);
-        if ($content === false || $content === '') {
-            return ['banned' => [], 'requests' => []];
+        // Acquire exclusive lock to ensure atomic read
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new RuntimeException("Failed to acquire lock for reading metadata");
         }
 
-        $data = json_decode($content, true);
-        if (!is_array($data)) {
-            return ['banned' => [], 'requests' => []];
+        try {
+            if (!file_exists($this->metaFilePath)) {
+                return ['banned' => [], 'requests' => []];
+            }
+
+            $content = file_get_contents($this->metaFilePath);
+            if ($content === false || $content === '') {
+                return ['banned' => [], 'requests' => []];
+            }
+
+            $data = json_decode($content, true);
+            if (!is_array($data)) {
+                return ['banned' => [], 'requests' => []];
+            }
+
+            $this->metaCache = $data;
+            return $data;
+        } finally {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
         }
-
-        $this->metaCache = $data;
-
-        return $data;
     }
 
     private function writeMeta(array $meta): void
@@ -284,8 +301,29 @@ final class FileStorage implements StorageInterface
             throw new RuntimeException('Failed to encode metadata');
         }
 
-        if (file_put_contents($this->metaFilePath, $json) === false) {
-            throw new RuntimeException("Failed to write metadata file: {$this->metaFilePath}");
+        // Use file locking to prevent race conditions
+        $lockFile = $this->metaFilePath . '.lock';
+        $lockHandle = fopen($lockFile, 'c+');
+        if ($lockHandle === false) {
+            throw new RuntimeException("Failed to open lock file: {$lockFile}");
+        }
+
+        // Acquire exclusive lock to ensure atomic write
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new RuntimeException("Failed to acquire lock for writing metadata");
+        }
+
+        try {
+            // Ensure directory exists before writing
+            $this->ensureDirectoryExists();
+
+            if (file_put_contents($this->metaFilePath, $json, LOCK_EX) === false) {
+                throw new RuntimeException("Failed to write metadata file: {$this->metaFilePath}");
+            }
+        } finally {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
         }
 
         $this->metaCache = null;

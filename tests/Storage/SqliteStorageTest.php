@@ -90,4 +90,13 @@ final class SqliteStorageTest extends TestCase
         $this->assertSame('192.168.1.1', $entries[0]->getIp());
         $this->assertSame('TestAgent', $entries[0]->getUserAgent());
     }
+    
+    public function testCreateRejectsInvalidTableNames(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid table name');
+        
+        // This should throw an exception because of the semicolon
+        SqliteStorage::create($this->tempDb, 'ip_logs; DROP TABLE users;');
+    }
 }

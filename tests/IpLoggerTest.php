@@ -206,4 +206,45 @@ final class IpLoggerTest extends TestCase
 
         $this->fail('Expected IpBannedException');
     }
+
+    public function testConfigValidationRejectsNegativeMaxRequests(): void
+    {
+        $config = new IpLoggerConfig();
+        
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Rate limit max requests must be non-negative');
+        
+        $config->setRateLimitMaxRequests(-1);
+    }
+
+    public function testConfigValidationRejectsNegativeWindowSeconds(): void
+    {
+        $config = new IpLoggerConfig();
+        
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Rate limit window seconds must be positive');
+        
+        $config->setRateLimitWindowSeconds(-1);
+    }
+
+    public function testConfigValidationRejectsZeroWindowSeconds(): void
+    {
+        $config = new IpLoggerConfig();
+        
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Rate limit window seconds must be positive');
+        
+        $config->setRateLimitWindowSeconds(0);
+    }
+
+    public function testConfigValidationAllowsValidValues(): void
+    {
+        $config = new IpLoggerConfig();
+        
+        $config->setRateLimitMaxRequests(100);
+        $config->setRateLimitWindowSeconds(60);
+        
+        $this->assertSame(100, $config->getRateLimitMaxRequests());
+        $this->assertSame(60, $config->getRateLimitWindowSeconds());
+    }
 }
